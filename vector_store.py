@@ -2,9 +2,6 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 
 # --- INITIALIZATION ---
-
-# Load the embedding model. This is done only ONCE when the application starts.
-# 'all-MiniLM-L6-v2' is a great, fast, and lightweight model for getting started.
 print("Loading embedding model...")
 EMBEDDING_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
 print("Embedding model loaded.")

@@ -1,9 +1,10 @@
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
 load_dotenv()
 
 from flask import Flask,session
-from flask import render_template
+from flask import render_template, render_template_string
 from flask import request,redirect
 from flask import flash,url_for
 import cloudinary
@@ -16,8 +17,12 @@ import secrets
 import processing
 import fitz
 import ai_utils
-
-
+import vector_store
+import rag
+import mongodb
+import email_server
+import secrets
+import hashlib
 
 database.init_db()  # Ensures DB and tables exist
 
@@ -113,6 +118,151 @@ def logout():
     # Redirect the user to the login page
     return redirect(url_for('login'))
 
+"""Generates a secure, random token for the email link and 
+a hash of that token to store in the database."""
+def generate_secure_reset_token():
+    
+    raw_token = secrets.token_urlsafe(32)
+    
+    # Generate the hash of that token
+    token_hash = hashlib.sha256(raw_token.encode('utf-8')).hexdigest()
+    
+    return raw_token, token_hash
+
+@app.route("/forgot_password", methods=['GET', 'POST'])
+def forgot_password():
+    
+    if request.method == 'POST':
+        
+        email = request.form.get('email')
+        user=database.get_user_by_email(email)
+        
+        if user:
+
+            token, token_hash = generate_secure_reset_token()
+            expires_at = datetime.now() + timedelta(minutes=15)
+
+            stored_successfully = database.store_reset_token(user['id'], token_hash, expires_at)
+
+            if stored_successfully:
+             reset_link = url_for('reset_password', token=token, _external=True)
+             email_server.send_reset_email(email, reset_link)
+
+            else:
+             flash("An error occurred. Please try again.", "error")
+             return redirect(url_for('forgot_password'))
+
+        return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reset Sent</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+        <style>
+            /* Custom styles to match the login/reset forms */
+            body { 
+                display: flex; 
+                justify-content: center; 
+                align-items: center; 
+                min-height: 100vh;
+                background-color: var(--pico-background-color);
+                font-family: var(--pico-font-family);
+            }
+            /* --- FIX: Center the message-card horizontally within the container --- */
+            main.container { 
+                max-width: 500px; 
+                /* Set container width to auto and use margin: 0 auto for centering */
+                width: 100%;
+                margin: 0 auto; 
+            }
+            .message-card {
+                max-width: 500px; 
+                padding: 2rem; 
+                background-color: var(--pico-color-bg); 
+                border: 1px solid var(--pico-color-border);
+                border-radius: var(--pico-border-radius);
+                box-shadow: var(--pico-box-shadow);
+            }
+            .success-text {
+                color: var(--pico-color-green-600);
+            }
+        </style>
+    </head>
+    <body>
+        <main class="container">
+            <div class="message-card">
+                <h3 style='text-align: center; padding: 2rem;' class="success-text">
+                    If an account with that email exists, a reset link has been sent.
+                </h3>
+            </div>
+        </main>
+    </body>
+    </html>
+""")
+    return render_template("forgot_password.html")
+
+@app.route("/reset-password", methods=['GET', 'POST'])
+def reset_password():
+    
+    if request.method == 'POST':
+        # --- POST: Handling the Form Submission and Password Update ---
+        
+        # 1. Get data from the form
+        token = request.form.get('token')
+        new_password = request.form.get('password')
+        confirm_password = request.form.get('password_confirm')
+
+        # Basic Validation
+        if new_password != confirm_password:
+            flash("Passwords do not match.", "error")
+            # Re-rendering the form, passing the token back to avoid losing state
+            return render_template("reset_password.html", token=token)
+
+        # 2. Secure Token Validation
+        token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+        reset_request = database.get_reset_token_details(token_hash)
+        
+        # Check if the token exists AND is not expired
+        if not reset_request or reset_request['expires_at'] < datetime.now():
+            flash("This reset link is invalid or has expired.", "error")
+            return redirect(url_for('forgot_password'))
+
+        # 3. Token is Valid: Perform the Update
+        user_id = reset_request['user_id']
+        
+        # Securely hash the new password using Bcrypt
+        hashed_password = bcrypt.generate_password_hash(new_password).decode('utf-8')
+        
+        database.update_user_password(user_id, hashed_password)
+        
+        database.delete_reset_token(token_hash)
+        
+        flash("Your password has been updated! You can now log in.", "success")
+        return redirect(url_for('login'))
+
+
+    # --- GET: Displaying the Form (User clicked the link) ---
+    token = request.args.get('token')
+
+    # 1. Checking for token existence in the URL
+    if not token:
+        flash("Invalid reset link. No token provided.", "error")
+        return redirect(url_for('forgot_password'))
+
+    # 2. Validating the token before showing the form
+    token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+    reset_request = database.get_reset_token_details(token_hash)
+
+    # Checking validity (token exists AND is not expired)
+    if not reset_request or reset_request['expires_at'] < datetime.now():
+        flash("The password reset link is invalid or has expired.", "error")
+        return redirect(url_for('forgot_password'))
+
+    # 3. Token is valid: Show the password form
+    # We pass the token so it can be saved in a hidden field for the POST request
+    return render_template("reset_password_form.html", token=token)
 
 @app.route('/dashboard')
 def dashboard():
@@ -169,7 +319,6 @@ def generate_unique_public_id(original_filename):
     
     # 4. Construct and return the final, unique public_id
     return f"{sanitized_filename}_{unique_suffix}"
-
 
 @app.route('/upload', methods=['POST'])
 def upload_document():
@@ -296,10 +445,97 @@ def view_document(doc_id):
    
     return render_template(
         'view_document.html', 
+        document=document,
         document_url=document['url'], 
         document_filename=document['filename'],
-        document_summary=document['summary']
+        document_summary=document['summary'],
+        search_query="",     
+        search_results=[],    
+        search_error=None     
     )
+
+@app.route('/document/<int:doc_id>/search', methods=['POST'])
+def search_in_document(doc_id):
+    
+    # 1. Authentication and Authorization
+    if 'user_id' not in session:
+        flash('Please log in to search.', 'danger')
+        return redirect(url_for('login'))
+
+    document = database.get_document_by_id(doc_id)
+    
+    if not document or document['user_id'] != session['user_id']:
+        flash('Document not found or you are not authorized.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    # 2. Get form data
+    query = request.form.get("query")
+    search_results = []
+    search_error = None
+
+    # 3. Call your vector store
+    if not query:
+        search_error = "Please enter a search query."
+    else:
+        try:
+            search_results = vector_store.search_document(
+                doc_id=doc_id,
+                query_text=query,
+                top_k=3  # Get the top 3 results
+            )
+            if not search_results:
+                search_error = "No relevant results found."
+        except Exception as e:
+            print(f"Search error for doc {doc_id}: {e}") # Log the error
+            search_error = "An error occurred during search."
+
+    # 4. Re-render the same page, but pass in the search data
+    return render_template(
+        'view_document.html',
+        document=document,
+        document_url=document['url'],
+        document_filename=document['filename'],
+        document_summary=document['summary'],
+        search_query=query,       
+        search_results=search_results,
+        search_error=search_error    
+    )
+
+
+@app.route('/chat/<int:doc_id>', methods=['POST'])
+def chat_with_document(doc_id):
+    
+    # 1. Authentication and Authorization
+    if 'user_id' not in session:
+        # User not logged in
+        return {"error": "Unauthorized. Please log in."}, 401
+
+    document = database.get_document_by_id(doc_id)
+    
+    if not document or document['user_id'] != session['user_id']:
+       return {"error": "Document not found or access denied."}, 404
+
+    # 2. Get the user's message from the JSON body
+    data = request.get_json()
+    message = data.get("message")
+
+    if not message:
+        return {"error": "No message provided."}, 400
+
+    try:
+
+        mongodb.save_message_to_history(str(doc_id), "user", message)
+        ai_reply = rag.answer_from_document(doc_id,message)
+
+        mongodb.save_message_to_history(str(doc_id), "assistant", ai_reply)
+        
+        # 4. Return the AI's response
+        return {"reply": ai_reply}
+
+    except Exception as e:
+        print(f"Error in chat endpoint for doc {doc_id}: {e}")
+        return {"error": f"An internal server error occurred: {str(e)}"}, 500
+
 
 if __name__ == "__main__":
     app.run(debug=True)

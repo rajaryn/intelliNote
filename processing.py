@@ -28,9 +28,6 @@ def chunk_text(text:str,chunk_size:int=300,overlap:int=50)->list[str]:
 
 
 def process_and_index_pdf(doc_id: int, file_bytes: bytes):
-    """
-    Orchestrator function that now also updates the document's status.
-    """
     print(f"--- Starting processing for document ID: {doc_id} ---")
     try:
         text = extract_text_from_pdf(file_bytes)
@@ -43,7 +40,7 @@ def process_and_index_pdf(doc_id: int, file_bytes: bytes):
             
         print(f"Created {len(chunks)} text chunks for document {doc_id}.")
 
-       
+        # Store chunks in vector store
         vector_store.add_document_chunks(doc_id, chunks)
         
         # If everything succeeds, update the status to COMPLETED

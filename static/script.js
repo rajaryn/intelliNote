@@ -1,4 +1,4 @@
-// static/script.js (with Zoom Limits)
+// static/script.js
 
 import * as pdfjsLib from "https://mozilla.github.io/pdf.js/build/pdf.mjs";
 

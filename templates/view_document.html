@@ -26,29 +26,27 @@
         z-index: 10;
       }
 
-      /* --- UPDATED: Main Content Grid Layout --- */
+      /* -----Main Content Grid Layout --- */
       .main-content {
         flex-grow: 1;
         display: grid;
-        /* Left column is a fixed 320px, right column takes the rest */
         grid-template-columns: 320px 1fr;
         gap: 1.5rem;
         padding: 0 1.5rem 1.5rem 1.5rem;
         overflow: hidden;
       }
 
-      /* --- Renamed to .sidebar for clarity --- */
       .sidebar {
         display: flex;
         flex-direction: column;
         gap: 1.5rem;
-        overflow: auto;
+        overflow: auto; /* Sidebar itself can scroll if needed */
       }
 
-      /* --- UPDATED: More Compact Controls --- */
+      /* --- PDF Controls (Unchanged) --- */
       .pdf-controls {
         background-color: var(--pico-card-background-color);
-        padding: 0.75rem; /* Reduced padding */
+        padding: 0.75rem;
         border: 1px solid var(--pico-card-border-color);
         border-radius: var(--pico-border-radius);
       }
@@ -56,29 +54,64 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 0.75rem; /* Reduced margin */
+        margin-bottom: 0.75rem;
       }
       .control-group:last-child {
         margin-bottom: 0;
       }
       .control-group button {
         width: auto;
-        padding: 0.2rem 0.6rem; /* Smaller button padding */
+        padding: 0.2rem 0.6rem;
         margin: 0;
-        font-size: 0.8em; /* Smaller button font */
+        font-size: 0.8em;
       }
       .control-group span {
-        font-size: 0.9em; /* Smaller text font */
+        font-size: 0.9em;
       }
 
+      /* --- AI Panel (FIXED CSS) --- */
       #ai-panel {
-        flex-grow: 1;
+        flex-grow: 1; /* Panel fills sidebar space */
         background-color: var(--pico-card-background-color);
-        padding: 1rem;
         border: 1px solid var(--pico-card-border-color);
         border-radius: var(--pico-border-radius);
+        display: flex;
+        flex-direction: column;
+        /* REMOVED overflow-y: auto; */
       }
 
+      #ai-panel details {
+        /* This makes a closed tab take up no space */
+        flex-grow: 0;
+      }
+
+      #ai-panel details[open] {
+        flex-grow: 1; /* The OPEN tab fills the panel */
+        display: flex;
+        flex-direction: column;
+        overflow: hidden; /* Prevents its children from breaking out */
+      }
+
+      #ai-panel details[open] summary {
+        border-bottom: 1px solid var(--pico-card-border-color);
+      }
+
+      /* Content of a tab (like Summary) */
+      #ai-panel details[open] > *:not(summary) {
+        flex-grow: 1;
+        overflow-y: auto; /* THIS content scrolls */
+        padding: 1rem;
+      }
+
+      #ai-panel details:not([open]) summary {
+        border-bottom: 1px solid transparent;
+      }
+
+      #ai-panel details summary {
+        padding: 0.75rem 1rem;
+      }
+
+      /* --- PDF Viewer (Unchanged) --- */
       .pdf-viewer {
         overflow: auto;
         display: flex;
@@ -91,6 +124,79 @@
         max-width: none !important;
         flex-shrink: 0;
       }
+
+      /* ----- START: CHAT STYLES (Fixed) ----- */
+
+      /* This is the content area of the chat tab */
+      #ai-panel details#chat-tab[open] > *:not(summary) {
+        padding: 0; /* Override default padding */
+        overflow-y: hidden; /* We manage scroll internally */
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* This is the scrolling area for messages */
+      #chat-messages {
+        flex-grow: 1;
+        overflow-y: auto; /* This part scrolls */
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      /* Chat bubble base style */
+      .chat-message {
+        padding: 0.5rem 0.75rem;
+        border-radius: var(--pico-border-radius);
+        max-width: 80%;
+        word-wrap: break-word;
+      }
+      .chat-message p {
+        margin-bottom: 0;
+        font-size: 0.9em;
+      }
+
+      /* USER's bubble */
+      .chat-message.user {
+        align-self: flex-end;
+        background-color: var(--pico-primary-background);
+        color: var(--pico-primary-inverse);
+      }
+
+      /* BOT's bubble */
+      .chat-message.bot {
+        align-self: flex-start;
+        background-color: var(--pico-muted-background);
+      }
+
+      /* "Thinking..." message */
+      .chat-message.bot.thinking p {
+        font-style: italic;
+        color: var(--pico-muted-color);
+      }
+
+      /* Chat input form */
+      #chat-form {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        flex-shrink: 0;
+        border-top: 1px solid var(--pico-card-border-color);
+        background-color: var(--pico-card-background-color);
+      }
+
+      #chat-form input,
+      #chat-form button {
+        margin-bottom: 0;
+        font-size: 0.9em;
+      }
+
+      #chat-form button {
+        width: auto;
+      }
+      /* ----- END: CHAT STYLES ----- */
     </style>
   </head>
   <body>
@@ -98,11 +204,9 @@
       <nav class="container-fluid viewer-header">
         <ul>
           <li>
-            <strong
-              ><a href="{{ url_for('dashboard') }}"
-                >← Back to Dashboard</a
-              ></strong
-            >
+            <strong>
+              <a href="{{ url_for('dashboard') }}">← Back to Dashboard</a>
+            </strong>
           </li>
           <li>{{ document_filename }}</li>
         </ul>
@@ -131,10 +235,10 @@
           <div id="pdf-controls" class="pdf-controls">
             <div class="control-group">
               <button id="prev-page">Previous</button>
-              <span
-                >Page: <span id="page-num">--</span> /
-                <span id="page-count">--</span></span
-              >
+              <span>
+                Page: <span id="page-num">--</span> /
+                <span id="page-count">--</span>
+              </span>
               <button id="next-page">Next</button>
             </div>
             <hr style="margin: 0.5rem 0" />
@@ -145,15 +249,38 @@
             </div>
           </div>
 
-          <div id="ai-panel">
-            <h4 style="margin-bottom: 0.5rem">Summary</h4>
+          <div id="ai-panel" class="sidebar-panel">
+            <details open>
+              <summary role="button">Summary</summary>
+              {% if document_summary %}
+              <p style="white-space: pre-wrap">{{ document_summary }}</p>
+              {% else %}
+              <p>No summary is available for this document.</p>
+              {% endif %}
+            </details>
 
-            {% if document_summary %} {# The style="white-space: pre-wrap;"
-            preserves paragraphs and line breaks from your summary #}
-            <p style="white-space: pre-wrap">{{ document_summary }}</p>
-            {% else %}
-            <p>No summary is available for this document.</p>
-            {% endif %}
+            <details id="chat-tab">
+              <summary role="button">Chat</summary>
+              
+              <div id="chat-messages">
+                <article class="chat-message bot">
+                  <p>Hi! Ask me anything about this document.</p>
+                </article>
+                </div>
+
+              <form id="chat-form" data-doc-id="{{ document.id }}">
+                <input
+                  type="text"
+                  id="chat-input"
+                  name="message"
+                  placeholder="Ask a question..."
+                  autocomplete="off"
+                  required
+                />
+                <button type="submit">Send</button>
+              </form>
+
+            </details>
           </div>
         </div>
 
@@ -167,6 +294,10 @@
     <script
       src="{{ url_for('static', filename='script.js') }}"
       type="module"
+    ></script>
+
+    <script
+      src="{{ url_for('static', filename='chat.js') }}"
     ></script>
   </body>
 </html>

@@ -87,13 +87,27 @@ def init_db():
           url VARCHAR(512) NOT NULL,
           public_id VARCHAR(255) NOT NULL,
           processing_status ENUM('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED') NOT NULL DEFAULT 'PENDING',
-         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )ENGINE=InnoDB;
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          tags VARCHAR(512) DEFAULT NULL,
+          summary TEXT DEFAULT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB;
         """
     
         cursor.execute(documents_table_sql)
         print("'documents' table is ready.")
+
+        password_resets_table_sql=""" 
+        CREATE TABLE IF NOT EXISTS password_resets (
+         id INT AUTO_INCREMENT PRIMARY KEY,
+         user_id INT NOT NULL,
+         token_hash VARCHAR(64) NOT NULL UNIQUE,
+         expires_at DATETIME NOT NULL,
+         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );"""
+    
+        cursor.execute(password_resets_table_sql)
+        print("'passwords_resets' table is ready.")
 
     except Error as e:
         print(f"Error during table creation: {e}")
@@ -259,6 +273,91 @@ def update_document_status(doc_id: int, status: str):
         return True
     except Error as e:
         print(f"Error updating document status: {e}")
+        conn.rollback()
+        return False
+    finally:
+        if conn.is_connected():
+            cursor.close()
+            conn.close()
+
+
+# --- To store a new password reset token ---
+def store_reset_token(user_id, token_hash, expires_at):
+    """Saves the hashed reset token to the password_resets table."""
+    conn = get_db_connection()
+    if conn is None: return False
+    try:
+        cursor = conn.cursor()
+        
+        # Clean up any old, expired tokens for this user first
+        cursor.execute("DELETE FROM password_resets WHERE user_id = %s", (user_id,))
+        
+        # Insert the new token
+        sql = "INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (%s, %s, %s)"
+        cursor.execute(sql, (user_id, token_hash, expires_at))
+        conn.commit()
+        return True
+    except Error as e:
+        print(f"Error storing reset token: {e}")
+        conn.rollback()
+        return False
+    finally:
+        if conn.is_connected():
+            cursor.close()
+            conn.close()
+
+# --- To retrieve a token's details ---
+def get_reset_token_details(token_hash):
+    """Fetches reset token details by the token_hash. Returns a dict or None."""
+    conn = get_db_connection()
+    if conn is None: return None
+    try:
+        cursor = conn.cursor(dictionary=True)
+        sql = "SELECT * FROM password_resets WHERE token_hash = %s"
+        cursor.execute(sql, (token_hash,))
+        token_data = cursor.fetchone()
+        return token_data
+    except Error as e:
+        print(f"Error fetching reset token: {e}")
+        return None
+    finally:
+        if conn.is_connected():
+            cursor.close()
+            conn.close()
+
+# --- To update a user's password ---
+def update_user_password(user_id, new_hashed_password):
+    """Updates the user's password_hash in the users table."""
+    conn = get_db_connection()
+    if conn is None: return False
+    try:
+        cursor = conn.cursor()
+        sql = "UPDATE users SET password_hash = %s WHERE id = %s"
+        cursor.execute(sql, (new_hashed_password, user_id))
+        conn.commit()
+        return True
+    except Error as e:
+        print(f"Error updating user password: {e}")
+        conn.rollback()
+        return False
+    finally:
+        if conn.is_connected():
+            cursor.close()
+            conn.close()
+
+# --- To delete a token after use ---
+def delete_reset_token(token_hash):
+    """Deletes a password reset token from the table after it has been used."""
+    conn = get_db_connection()
+    if conn is None: return False
+    try:
+        cursor = conn.cursor()
+        sql = "DELETE FROM password_resets WHERE token_hash = %s"
+        cursor.execute(sql, (token_hash,))
+        conn.commit()
+        return True
+    except Error as e:
+        print(f"Error deleting reset token: {e}")
         conn.rollback()
         return False
     finally:
