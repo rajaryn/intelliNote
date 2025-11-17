@@ -3,7 +3,7 @@ import mysql.connector
 from mysql.connector import Error,pooling
 
 
-# This function should be called from app.py AFTER load_dotenv()
+# function to be called from app.py after load_dotenv()
 def create_db_pool():
     """Creates a connection pool for the database."""
     try:
@@ -40,7 +40,7 @@ def init_db():
     conn = None
     cursor = None
     try:
-        # Step 1: Connect to the server WITHOUT a specific database to create it
+        # Step 1: Connecting to the server WITHOUT a specific database to create it
         print("Connecting to MySQL server to ensure database exists...")
         conn = mysql.connector.connect(
             host=os.getenv('DB_HOST', 'localhost'),
@@ -59,7 +59,7 @@ def init_db():
             cursor.close()
             conn.close()
 
-    # Step 2: Use a connection from the pool to create the tables
+    # Step 2: Using a connection from the pool to create the tables
     conn = get_db_connection()
     if conn is None:
         print("Could not get DB connection from pool to create tables.")
@@ -118,8 +118,6 @@ def init_db():
             print("Connection returned to pool.")
 
 
-
-
 # -------To add a user ---------
 def add_user(email, password_hash):
     """Adds a new user to the users table. Returns True on success, False on failure."""
@@ -166,6 +164,7 @@ def get_user_by_email(email):
         if conn.is_connected():
             cursor.close()
             conn.close()
+
 
 # ---To add a document's metadata ---
 def add_document(user_id, filename, url, public_id,tags_string,summary):

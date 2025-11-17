@@ -1,11 +1,11 @@
 import smtplib
 from email.message import EmailMessage
-from flask import Flask, request, render_template, redirect, url_for
+import os,dotenv
 
-
-# --- This is the MailHog Configuration ---
-SMTP_HOST = "localhost"
-SMTP_PORT = 1025
+# Load environment variables from .env file
+dotenv.load_dotenv()
+SMTP_HOST = os.getenv("SMTP_HOST", "localhost")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 1025))
 # ------------------------------------------
 
 def send_reset_email(recipient_email, reset_link):

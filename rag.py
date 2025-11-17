@@ -88,7 +88,6 @@ def answer_from_document(doc_id: int, user_question: str):
             {'role': 'system', 'content': system_prompt}
         ]
         
-        # Add history
         messages.extend(history)
         
         # Add the final user prompt WITH context
